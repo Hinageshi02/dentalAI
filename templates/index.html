@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dental Cavity Detection</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light py-5">
+<div class="container">
+    <h1 class="text-center mb-4">🦷 Dental Cavity Detection</h1>
+    <div class="card shadow p-4">
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="image" class="form-label">Upload a dental image</label>
+                <input type="file" class="form-control" id="image" name="image" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Detect Cavities</button>
+        </form>
+
+        <div id="result" class="mt-4 text-center"></div>
+
+        <div class="mt-4">
+            <h5>Legend:</h5>
+            <ul class="list-unstyled">
+                <li><span style="color:red;">■</span> High confidence (≥50%)</li>
+                <li><span style="color:orange;">■</span> Medium confidence (30–50%)</li>
+                <li><span style="color:yellow;">■</span> Low confidence (<30%)</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData();
+    formData.append('image', document.getElementById('image').files[0]);
+
+    const response = await fetch('/predict', {
+        method: 'POST',
+        body: formData
+    });
+
+    const data = await response.json();
+    const resultDiv = document.getElementById('result');
+
+    if (data.success) {
+        const originalFile = document.getElementById('image').files[0];
+        const originalURL = URL.createObjectURL(originalFile);
+
+        // Create list of confidence percentages
+        let confList = "";
+        if (data.detections.length > 0) {
+            confList = "<ul class='text-start'>";
+            data.detections.forEach((det, idx) => {
+                let confColor = "black";
+                const c = det.confidence;
+                if (c >= 0.5) confColor = "red";
+                else if (c >= 0.3) confColor = "orange";
+                else confColor = "yellow";
+
+                confList += `<li style="color:${confColor}">Cavity ${idx + 1}: ${(c*100).toFixed(2)}%</li>`;
+            });
+            confList += "</ul>";
+        } else {
+            confList = "<p>No cavities detected</p>";
+        }
+
+        resultDiv.innerHTML = `
+            <h4 class="text-success">✅ Detection Complete</h4>
+            <div class="row mt-3">
+                <div class="col-md-6 text-center">
+                    <p>Original Image</p>
+                    <img src="${originalURL}" class="img-fluid rounded shadow" alt="Original Image">
+                </div>
+                <div class="col-md-6 text-center">
+                    <p>Detected Cavities</p>
+                    <img src="${data.result_image}" class="img-fluid rounded shadow" alt="Result Image">
+                    <div class="mt-2">${confList}</div>
+                </div>
+            </div>
+        `;
+    } else {
+        resultDiv.innerHTML = `<p class="text-danger">Error: ${data.error}</p>`;
+    }
+});
+</script>
+</body>
+</html>
