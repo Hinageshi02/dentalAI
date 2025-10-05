@@ -1,8 +1,7 @@
 import os
 from flask import Flask, request, jsonify, render_template, send_from_directory, url_for
-from ultralytics import YOLO
 import cv2
-
+from ultralytics import YOLO
 
 # ---------------------------
 # 🔧 Configuration
@@ -14,35 +13,16 @@ RESULT_FOLDER = os.path.join(BASE_DIR, "results")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 
-# 👇 YOLO model path (change only this if needed)
-MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "runs", "detect", "cavity_yolo25", "weights", "best.pt"
-)
-
-# ---------------------------
-# 🚨 Check model existence
-# ---------------------------
-if not os.path.exists(MODEL_PATH):
-    print(f"⚠️ Model not found locally at {MODEL_PATH}")
-    print("➡️ You can download it manually or host it on cloud storage (Google Drive, etc.)")
-else:
-    print(f"✅ Found model at: {MODEL_PATH}")
+# 👇 YOLO model path
+MODEL_PATH = os.path.join(BASE_DIR, "runs", "detect", "cavity_yolo25", "weights", "best.pt")
 
 # ---------------------------
 # 🚀 Initialize Flask app
 # ---------------------------
 app = Flask(__name__, static_folder="results", template_folder="templates")
 
-# ---------------------------
-# 🧠 Load YOLO model
-# ---------------------------
-try:
-    model = YOLO(MODEL_PATH)
-    print("✅ YOLOv8 cavity detection model loaded successfully!")
-except Exception as e:
-    print(f"❌ Error loading YOLO model: {e}")
-    model = None
+# 🧠 Lazy model (loaded only when needed)
+model = None
 
 
 # ---------------------------
@@ -58,6 +38,8 @@ def home():
 # ---------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
+    global model
+
     if "image" not in request.files:
         return jsonify({"success": False, "error": "No image uploaded"}), 400
 
@@ -66,8 +48,13 @@ def predict():
     result_path = os.path.join(RESULT_FOLDER, f"detected_{file.filename}")
     file.save(image_path)
 
+    # ✅ Load YOLO model lazily (only once)
     if model is None:
-        return jsonify({"success": False, "error": "Model not loaded"}), 500
+        if not os.path.exists(MODEL_PATH):
+            return jsonify({"success": False, "error": f"Model not found at {MODEL_PATH}"}), 500
+        print("🧠 Loading YOLO model for the first time...")
+        model = YOLO(MODEL_PATH)
+        print("✅ Model loaded successfully!")
 
     try:
         results = model(image_path, conf=0.4)
