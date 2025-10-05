@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request, jsonify, render_template, send_from_directory, url_for
-import cv2
 from ultralytics import YOLO
+import cv2
 
 # ---------------------------
 # 🔧 Configuration
@@ -13,23 +13,40 @@ RESULT_FOLDER = os.path.join(BASE_DIR, "results")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 
-MODEL_PATH = os.path.join(BASE_DIR, "runs", "detect", "cavity_yolo25", "weights", "best.pt")
+# 👇 Change ONLY this path if your best.pt is in a different folder
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "runs", "detect", "cavity_yolo25", "weights", "best.pt"
+)
 
+# ---------------------------
+# 🚨 Check model existence
+# ---------------------------
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"❌ Model file not found at: {MODEL_PATH}")
+
+# ---------------------------
+# 🚀 Initialize Flask app
+# ---------------------------
 app = Flask(__name__, static_folder="results", template_folder="templates")
 
-# 🧠 Lazy model loading
-model = None
+# Load YOLOv8 model
+model = YOLO(MODEL_PATH)
+print("✅ YOLOv8 cavity detection model loaded successfully!")
 
-
+# ---------------------------
+# 🏠 Home Route
+# ---------------------------
 @app.route("/")
 def home():
+    """Render the upload web page"""
     return render_template("index.html")
 
-
+# ---------------------------
+# 🧠 Prediction Endpoint
+# ---------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
-    global model
-
     if "image" not in request.files:
         return jsonify({"success": False, "error": "No image uploaded"}), 400
 
@@ -39,48 +56,81 @@ def predict():
     file.save(image_path)
 
     try:
-        # ✅ Load model lazily (only once)
-        if model is None:
-            if not os.path.exists(MODEL_PATH):
-                return jsonify({"success": False, "error": f"Model not found at {MODEL_PATH}"}), 500
-            print("🧠 Loading YOLO model for the first time (CPU mode)...")
-            model = YOLO(MODEL_PATH)
-            model.to("cpu")  # ✅ Force CPU mode for Render
-            print("✅ Model loaded successfully!")
-
-        # ✅ Run with minimal memory
-        results = model.predict(image_path, conf=0.45, verbose=False, device="cpu", imgsz=320)
-
+        # -------------------------------
+        # 🔹 Preprocess: upscale small images
+        # -------------------------------
         img = cv2.imread(image_path)
-        if img is None:
-            return jsonify({"success": False, "error": "Failed to read uploaded image."}), 500
+        height, width = img.shape[:2]
 
+        MIN_HEIGHT = 416
+        MIN_WIDTH = 416
+
+        if height < MIN_HEIGHT or width < MIN_WIDTH:
+            scale = max(MIN_HEIGHT / height, MIN_WIDTH / width)
+            new_w, new_h = int(width * scale), int(height * scale)
+            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            temp_path = os.path.join(UPLOAD_FOLDER, f"resized_{file.filename}")
+            cv2.imwrite(temp_path, img)
+            inference_path = temp_path
+        else:
+            inference_path = image_path
+
+        # -------------------------------
+        # 🔹 Run YOLOv8 inference
+        # -------------------------------
+        results = model(inference_path, imgsz=640, conf=0.4)
+
+        # -------------------------------
+        # 🔹 Draw detections with confidence-based colors
+        # -------------------------------
+        detections = []
         for r in results:
-            for box in r.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf[0])
-                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                cv2.putText(img, f"Cavity {conf:.2f}", (x1, y1 - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            boxes = r.boxes.xyxy.cpu().numpy()
+            confs = r.boxes.conf.cpu().numpy()
 
+            for box, conf in zip(boxes, confs):
+                x1, y1, x2, y2 = map(int, box)
+
+                # Set color based on confidence
+                if conf >= 0.5:
+                    color = (0, 0, 255)      # Red = high confidence
+                elif conf >= 0.3:
+                    color = (0, 165, 255)    # Orange = medium
+                else:
+                    color = (0, 255, 255)    # Yellow = low
+
+                cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
+                cv2.putText(img, f"Cavity {conf:.2f}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+
+                detections.append({
+                    "bbox": [x1, y1, x2, y2],
+                    "confidence": float(conf)
+                })
+
+        # Save the final result
         cv2.imwrite(result_path, img)
-        result_url = url_for("serve_result_image", filename=f"detected_{file.filename}")
 
+        # Return a URL for the frontend
+        result_url = url_for("serve_result_image", filename=f"detected_{file.filename}")
         return jsonify({
             "success": True,
             "message": "Cavity detection completed.",
-            "result_image": result_url
+            "result_image": result_url,
+            "detections": detections
         })
 
     except Exception as e:
         print("❌ Error:", e)
         return jsonify({"success": False, "error": str(e)})
 
-
+# ---------------------------
+# 🖼 Serve processed images
+# ---------------------------
 @app.route("/results/<path:filename>")
 def serve_result_image(filename):
+    """Serve the resulting image for display in browser"""
     return send_from_directory(RESULT_FOLDER, filename)
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
