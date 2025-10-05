@@ -1,8 +1,11 @@
 import os
-import cv2
-import requests
+# ✅ Fix for Render warning (YOLO config directory)
+os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
+
 from flask import Flask, request, jsonify, render_template, send_from_directory, url_for
 from ultralytics import YOLO
+import cv2
+
 
 # ---------------------------
 # 🔧 Configuration
@@ -10,30 +13,18 @@ from ultralytics import YOLO
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 RESULT_FOLDER = os.path.join(BASE_DIR, "results")
-MODEL_DIR = os.path.join(BASE_DIR, "runs", "detect", "cavity_yolo25", "weights")
-MODEL_PATH = os.path.join(MODEL_DIR, "best.pt")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
-os.makedirs(MODEL_DIR, exist_ok=True)
 
-# 👇 CHANGE THIS LINK to your own Google Drive direct download link
-MODEL_URL = "https://drive.google.com/uc?id=17sVcw1WvqzrU3vVNpjKmdoyrjDIj9hAI"
-
-# ---------------------------
-# 📦 Download model if not found
-# ---------------------------
-if not os.path.exists(MODEL_PATH):
-    print("📥 Downloading YOLO model from Google Drive...")
-    r = requests.get(MODEL_URL, allow_redirects=True)
-    if r.status_code == 200:
-        open(MODEL_PATH, 'wb').write(r.content)
-        print("✅ Model downloaded successfully!")
-    else:
-        raise Exception(f"❌ Failed to download model. Status code: {r.status_code}")
+# 👇 Change ONLY this path if your best.pt is in a different folder
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "runs", "detect", "cavity_yolo25", "weights", "best.pt"
+)
 
 # ---------------------------
-# 🚨 Verify model file
+# 🚨 Check model existence
 # ---------------------------
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(f"❌ Model file not found at: {MODEL_PATH}")
@@ -54,6 +45,7 @@ print("✅ YOLOv8 cavity detection model loaded successfully!")
 def home():
     """Render the upload web page"""
     return render_template("index.html")
+
 
 # ---------------------------
 # 🧠 Prediction Endpoint
@@ -86,7 +78,7 @@ def predict():
 
         cv2.imwrite(result_path, img)
 
-        # ✅ Return URL for the detected image
+        # ✅ Return a URL instead of file path
         result_url = url_for("serve_result_image", filename=f"detected_{file.filename}")
         return jsonify({
             "success": True,
@@ -98,6 +90,7 @@ def predict():
         print("❌ Error:", e)
         return jsonify({"success": False, "error": str(e)})
 
+
 # ---------------------------
 # 🖼 Serve processed images
 # ---------------------------
@@ -106,9 +99,9 @@ def serve_result_image(filename):
     """Serve the resulting image for display in browser"""
     return send_from_directory(RESULT_FOLDER, filename)
 
+
 # ---------------------------
 # 🏁 Run Flask App
 # ---------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render uses dynamic port
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=True)
