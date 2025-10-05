@@ -1,4 +1,5 @@
 flask
-ultralytics
-opencv-python-headless
+ultralytics==8.3.20
+opencv-python
+numpy
 gunicorn

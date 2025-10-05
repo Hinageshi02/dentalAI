@@ -1,8 +1,8 @@
 import os
-import cv2
-import requests
 from flask import Flask, request, jsonify, render_template, send_from_directory, url_for
 from ultralytics import YOLO
+import cv2
+
 
 # ---------------------------
 # 🔧 Configuration
@@ -10,50 +10,48 @@ from ultralytics import YOLO
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 RESULT_FOLDER = os.path.join(BASE_DIR, "results")
-MODEL_DIR = os.path.join(BASE_DIR, "runs", "detect", "cavity_yolo25", "weights")
-MODEL_PATH = os.path.join(MODEL_DIR, "best.pt")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
-os.makedirs(MODEL_DIR, exist_ok=True)
 
-# 👇 CHANGE THIS LINK to your own Google Drive direct download link
-MODEL_URL = "https://drive.google.com/uc?id=17sVcw1WvqzrU3vVNpjKmdoyrjDIj9hAI"
+# 👇 YOLO model path (change only this if needed)
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "runs", "detect", "cavity_yolo25", "weights", "best.pt"
+)
 
 # ---------------------------
-# 📦 Download model if not found
+# 🚨 Check model existence
 # ---------------------------
 if not os.path.exists(MODEL_PATH):
-    print("📥 Downloading YOLO model from Google Drive...")
-    r = requests.get(MODEL_URL, allow_redirects=True)
-    if r.status_code == 200:
-        open(MODEL_PATH, 'wb').write(r.content)
-        print("✅ Model downloaded successfully!")
-    else:
-        raise Exception(f"❌ Failed to download model. Status code: {r.status_code}")
-
-# ---------------------------
-# 🚨 Verify model file
-# ---------------------------
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"❌ Model file not found at: {MODEL_PATH}")
+    print(f"⚠️ Model not found locally at {MODEL_PATH}")
+    print("➡️ You can download it manually or host it on cloud storage (Google Drive, etc.)")
+else:
+    print(f"✅ Found model at: {MODEL_PATH}")
 
 # ---------------------------
 # 🚀 Initialize Flask app
 # ---------------------------
 app = Flask(__name__, static_folder="results", template_folder="templates")
 
-# Load YOLOv8 model
-model = YOLO(MODEL_PATH)
-print("✅ YOLOv8 cavity detection model loaded successfully!")
+# ---------------------------
+# 🧠 Load YOLO model
+# ---------------------------
+try:
+    model = YOLO(MODEL_PATH)
+    print("✅ YOLOv8 cavity detection model loaded successfully!")
+except Exception as e:
+    print(f"❌ Error loading YOLO model: {e}")
+    model = None
+
 
 # ---------------------------
 # 🏠 Home Route
 # ---------------------------
 @app.route("/")
 def home():
-    """Render the upload web page"""
     return render_template("index.html")
+
 
 # ---------------------------
 # 🧠 Prediction Endpoint
@@ -68,12 +66,13 @@ def predict():
     result_path = os.path.join(RESULT_FOLDER, f"detected_{file.filename}")
     file.save(image_path)
 
-    try:
-        # Run YOLOv8 inference
-        results = model(image_path, conf=0.4)
+    if model is None:
+        return jsonify({"success": False, "error": "Model not loaded"}), 500
 
-        # Draw detections using OpenCV
+    try:
+        results = model(image_path, conf=0.4)
         img = cv2.imread(image_path)
+
         for r in results:
             boxes = r.boxes.xyxy.cpu().numpy()
             confs = r.boxes.conf.cpu().numpy()
@@ -85,9 +84,8 @@ def predict():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
         cv2.imwrite(result_path, img)
-
-        # ✅ Return URL for the detected image
         result_url = url_for("serve_result_image", filename=f"detected_{file.filename}")
+
         return jsonify({
             "success": True,
             "message": "Cavity detection completed.",
@@ -98,17 +96,18 @@ def predict():
         print("❌ Error:", e)
         return jsonify({"success": False, "error": str(e)})
 
+
 # ---------------------------
-# 🖼 Serve processed images
+# 🖼 Serve Result Images
 # ---------------------------
 @app.route("/results/<path:filename>")
 def serve_result_image(filename):
-    """Serve the resulting image for display in browser"""
     return send_from_directory(RESULT_FOLDER, filename)
 
+
 # ---------------------------
-# 🏁 Run Flask App
+# 🏁 Run Flask App (Render-compatible)
 # ---------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render uses dynamic port
-    app.run(host="0.0.0.0", port=port, debug=False)
+    port = int(os.environ.get("PORT", 5000))  # ✅ Render sets PORT automatically
+    app.run(host="0.0.0.0", port=port, debug=True)
