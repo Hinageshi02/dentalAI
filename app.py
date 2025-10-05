@@ -13,29 +13,19 @@ RESULT_FOLDER = os.path.join(BASE_DIR, "results")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 
-# 👇 YOLO model path
 MODEL_PATH = os.path.join(BASE_DIR, "runs", "detect", "cavity_yolo25", "weights", "best.pt")
 
-# ---------------------------
-# 🚀 Initialize Flask app
-# ---------------------------
 app = Flask(__name__, static_folder="results", template_folder="templates")
 
-# 🧠 Lazy model (loaded only when needed)
+# 🧠 Lazy model loading
 model = None
 
 
-# ---------------------------
-# 🏠 Home Route
-# ---------------------------
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
-# ---------------------------
-# 🧠 Prediction Endpoint
-# ---------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
     global model
@@ -48,27 +38,30 @@ def predict():
     result_path = os.path.join(RESULT_FOLDER, f"detected_{file.filename}")
     file.save(image_path)
 
-    # ✅ Load YOLO model lazily (only once)
-    if model is None:
-        if not os.path.exists(MODEL_PATH):
-            return jsonify({"success": False, "error": f"Model not found at {MODEL_PATH}"}), 500
-        print("🧠 Loading YOLO model for the first time...")
-        model = YOLO(MODEL_PATH)
-        print("✅ Model loaded successfully!")
-
     try:
-        results = model(image_path, conf=0.4)
+        # ✅ Load model lazily (only once)
+        if model is None:
+            if not os.path.exists(MODEL_PATH):
+                return jsonify({"success": False, "error": f"Model not found at {MODEL_PATH}"}), 500
+            print("🧠 Loading YOLO model for the first time (CPU mode)...")
+            model = YOLO(MODEL_PATH)
+            model.to("cpu")  # ✅ Force CPU mode for Render
+            print("✅ Model loaded successfully!")
+
+        # ✅ Run with minimal memory
+        results = model.predict(image_path, conf=0.45, verbose=False, device="cpu", imgsz=320)
+
         img = cv2.imread(image_path)
+        if img is None:
+            return jsonify({"success": False, "error": "Failed to read uploaded image."}), 500
 
         for r in results:
-            boxes = r.boxes.xyxy.cpu().numpy()
-            confs = r.boxes.conf.cpu().numpy()
-
-            for box, conf in zip(boxes, confs):
-                x1, y1, x2, y2 = map(int, box)
-                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                cv2.putText(img, f"Cavity {conf:.2f}", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            for box in r.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                conf = float(box.conf[0])
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.putText(img, f"Cavity {conf:.2f}", (x1, y1 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
         cv2.imwrite(result_path, img)
         result_url = url_for("serve_result_image", filename=f"detected_{file.filename}")
@@ -84,17 +77,11 @@ def predict():
         return jsonify({"success": False, "error": str(e)})
 
 
-# ---------------------------
-# 🖼 Serve Result Images
-# ---------------------------
 @app.route("/results/<path:filename>")
 def serve_result_image(filename):
     return send_from_directory(RESULT_FOLDER, filename)
 
 
-# ---------------------------
-# 🏁 Run Flask App (Render-compatible)
-# ---------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # ✅ Render sets PORT automatically
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

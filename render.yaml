@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: dental-cavity-detector
+    name: cavity-detector-ai
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --workers 1 --threads 1 --timeout 300
     plan: free
