@@ -20,19 +20,24 @@ MODEL_PATH = os.path.join(
 )
 
 # ---------------------------
-# 🚨 Check model existence
-# ---------------------------
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"❌ Model file not found at: {MODEL_PATH}")
-
-# ---------------------------
-# 🚀 Initialize Flask app
+# 🚀 Initialize Flask App
 # ---------------------------
 app = Flask(__name__, static_folder="results", template_folder="templates")
 
-# Load YOLOv8 model
-model = YOLO(MODEL_PATH)
-print("✅ YOLOv8 cavity detection model loaded successfully!")
+# ---------------------------
+# 🧠 Lazy Load YOLOv8 Model (Prevents Render Timeout)
+# ---------------------------
+model = None
+
+@app.before_first_request
+def load_model():
+    """Load the YOLOv8 model only when the first request is made."""
+    global model
+    if not os.path.exists(MODEL_PATH):
+        raise FileNotFoundError(f"❌ Model file not found at: {MODEL_PATH}")
+
+    model = YOLO(MODEL_PATH)
+    print("✅ YOLOv8 cavity detection model loaded successfully!")
 
 # ---------------------------
 # 🏠 Home Route
@@ -56,14 +61,15 @@ def predict():
     file.save(image_path)
 
     try:
+        if model is None:
+            return jsonify({"success": False, "error": "Model not loaded yet."}), 503
+
         # -------------------------------
         # 🔹 Preprocess: upscale small images
         # -------------------------------
         img = cv2.imread(image_path)
         height, width = img.shape[:2]
-
-        MIN_HEIGHT = 416
-        MIN_WIDTH = 416
+        MIN_HEIGHT, MIN_WIDTH = 416, 416
 
         if height < MIN_HEIGHT or width < MIN_WIDTH:
             scale = max(MIN_HEIGHT / height, MIN_WIDTH / width)
@@ -81,7 +87,7 @@ def predict():
         results = model(inference_path, imgsz=640, conf=0.4)
 
         # -------------------------------
-        # 🔹 Draw detections with confidence-based colors
+        # 🔹 Draw detections
         # -------------------------------
         detections = []
         for r in results:
@@ -91,7 +97,7 @@ def predict():
             for box, conf in zip(boxes, confs):
                 x1, y1, x2, y2 = map(int, box)
 
-                # Set color based on confidence
+                # Confidence-based color
                 if conf >= 0.5:
                     color = (0, 0, 255)      # Red = high confidence
                 elif conf >= 0.3:
@@ -108,10 +114,9 @@ def predict():
                     "confidence": float(conf)
                 })
 
-        # Save the final result
+        # Save the result
         cv2.imwrite(result_path, img)
 
-        # Return a URL for the frontend
         result_url = url_for("serve_result_image", filename=f"detected_{file.filename}")
         return jsonify({
             "success": True,
@@ -125,13 +130,16 @@ def predict():
         return jsonify({"success": False, "error": str(e)})
 
 # ---------------------------
-# 🖼 Serve processed images
+# 🖼 Serve Processed Images
 # ---------------------------
 @app.route("/results/<path:filename>")
 def serve_result_image(filename):
     """Serve the resulting image for display in browser"""
     return send_from_directory(RESULT_FOLDER, filename)
 
+# ---------------------------
+# ⚙️ Run App (Render)
+# ---------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
