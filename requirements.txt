@@ -1,6 +1,9 @@
-Flask
-ultralytics==8.3.20
-opencv-python-headless
-numpy
-torch
+flask
 gunicorn
+ultralytics
+torch
+torchvision
+opencv-python
+numpy
+pillow
+requests
