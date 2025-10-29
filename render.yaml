@@ -1,17 +1,8 @@
 services:
   - type: web
-    name: dentalai-yolo
+    name: dental-ai
     env: python
-    plan: free                # You can change this to 'starter' or 'standard' if needed
-    region: singapore         # or 'oregon', 'frankfurt', etc.
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-    startCommand: >
-      gunicorn app:app --timeout 120 --workers 1 --threads 2 --bind 0.0.0.0:$PORT
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.10
-      - key: PORT
-        value: 5000
-    autoDeploy: true
+    plan: free
+    runtime: python-3.10.14
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
