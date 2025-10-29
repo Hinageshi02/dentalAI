@@ -1,10 +1,12 @@
 import os
-from flask import Flask, render_template, request, jsonify
-from ultralytics import YOLO
-from werkzeug.utils import secure_filename
+import base64
 import cv2
 import numpy as np
-import base64
+from flask import Flask, render_template, request, jsonify
+from werkzeug.utils import secure_filename
+from ultralytics import YOLO
+import torch
+from ultralytics.nn.tasks import DetectionModel
 
 # ---------------------------
 # 🔧 Flask App Configuration
@@ -18,6 +20,11 @@ os.makedirs("results", exist_ok=True)
 
 # Avoid permission issues in Render
 os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
+
+# ---------------------------
+# 🧩 Fix for PyTorch 2.6+ (safe model loading)
+# ---------------------------
+torch.serialization.add_safe_globals([DetectionModel])
 
 # ---------------------------
 # 🚀 Load YOLO Model (once)
@@ -55,7 +62,13 @@ def predict():
     file.save(filepath)
 
     # Run YOLO prediction
-    results = model.predict(source=filepath, save=True, project="results", name="predictions", exist_ok=True)
+    results = model.predict(
+        source=filepath,
+        save=True,
+        project="results",
+        name="predictions",
+        exist_ok=True
+    )
 
     # Get the annotated image path
     result_path = results[0].save_dir / os.path.basename(filepath)
