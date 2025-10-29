@@ -1,13 +1,13 @@
 services:
   - type: web
-    name: dental-ai
+    name: dental-cavity-detector
     env: python
     plan: free
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
     startCommand: >
-      gunicorn app:app --timeout 180 --workers 1 --threads 1 --preload --bind 0.0.0.0:$PORT
+      gunicorn app:app --timeout 200 --workers 1 --threads 1 --preload --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.12
