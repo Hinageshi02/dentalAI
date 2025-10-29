@@ -1,9 +1,14 @@
+# ---- Web Framework ----
 flask==3.0.3
 gunicorn==21.2.0
-ultralytics==8.0.134
-torch
-torchvision
-opencv-python
-numpy
-pillow
-requests
+
+# ---- AI / ML ----
+ultralytics==8.3.23
+torch==2.6.0
+torchvision==0.21.0
+
+# ---- Image & Math Libraries ----
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+pillow==10.4.0
+requests==2.32.3
