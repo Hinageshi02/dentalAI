@@ -1,6 +1,6 @@
-flask
-gunicorn
-ultralytics
+flask==2.3.3
+gunicorn==21.2.0
+ultralytics==8.2.0
 torch
 torchvision
 opencv-python
