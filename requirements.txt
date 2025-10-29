@@ -2,7 +2,7 @@ flask==3.0.3
 gunicorn==21.2.0
 ultralytics==8.0.134
 torch
-torchvision==0.15.2
+torchvision
 opencv-python
 numpy
 pillow
