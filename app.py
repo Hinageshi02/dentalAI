@@ -1,69 +1,84 @@
 import os
-from flask import Flask, render_template, request, jsonify, send_from_directory
-from PIL import Image, ImageDraw
-import io
-import random
+from flask import Flask, render_template, request, jsonify
+from ultralytics import YOLO
+from werkzeug.utils import secure_filename
+import cv2
 import base64
 
+# -----------------------------
+# 🔧 Flask Configuration
+# -----------------------------
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['RESULT_FOLDER'] = 'static/results'
+app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['RESULT_FOLDER'], exist_ok=True)
+os.makedirs('results', exist_ok=True)
 
-# ---------- Homepage ----------
+# -----------------------------
+# ⚙️ Model Path Configuration
+# -----------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "runs", "detect", "cavity_yolo25", "weights", "best.pt"
+)
+
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"❌ Model not found at {MODEL_PATH}")
+
+# Load YOLO model
+model = YOLO(MODEL_PATH)
+print("✅ YOLO cavity detection model loaded successfully!")
+
+# -----------------------------
+# 🏠 Home Route
+# -----------------------------
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# ---------- Prediction Route ----------
+# -----------------------------
+# 🧠 Prediction Route
+# -----------------------------
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'image' not in request.files:
-        return jsonify({'success': False, 'error': 'No image uploaded'})
+        return jsonify({'success': False, 'error': 'No image uploaded'}), 400
 
     file = request.files['image']
     if file.filename == '':
-        return jsonify({'success': False, 'error': 'No selected file'})
+        return jsonify({'success': False, 'error': 'No selected file'}), 400
 
-    # Save uploaded image
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
-    try:
-        # Open image for mock detection (replace this with your AI model if available)
-        img = Image.open(filepath).convert("RGB")
-        draw = ImageDraw.Draw(img)
+    # Run YOLO prediction
+    results = model.predict(source=filepath, save=True, project='results', name='predictions', exist_ok=True)
 
-        detections = []
-        # Simulate 0–3 random "cavity detections"
-        for _ in range(random.randint(0, 3)):
-            x1, y1 = random.randint(20, 150), random.randint(20, 150)
-            x2, y2 = x1 + random.randint(50, 100), y1 + random.randint(50, 100)
-            conf = round(random.uniform(0.2, 0.9), 2)
-            detections.append({'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'confidence': conf})
+    # Get annotated image
+    result_path = results[0].save_dir / os.path.basename(filepath)
+    annotated = cv2.imread(str(result_path))
 
-            color = "red" if conf >= 0.5 else "orange" if conf >= 0.3 else "yellow"
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+    # Convert to base64
+    _, buffer = cv2.imencode('.jpg', annotated)
+    encoded_image = base64.b64encode(buffer).decode('utf-8')
 
-        # Save annotated image
-        result_filename = f"result_{file.filename}"
-        result_path = os.path.join(app.config['RESULT_FOLDER'], result_filename)
-        img.save(result_path)
+    # Extract detections
+    detections = []
+    for box in results[0].boxes:
+        conf = float(box.conf[0])
+        detections.append({'confidence': conf})
 
-        return jsonify({
-            'success': True,
-            'result_image': f"/{result_path}",
-            'detections': detections
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    return jsonify({
+        'success': True,
+        'message': 'Cavity detection completed successfully.',
+        'result_image': f"data:image/jpeg;base64,{encoded_image}",
+        'detections': detections
+    })
 
-# ---------- Serve Static Files ----------
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    return send_from_directory('static', filename)
-
-# ---------- Run Local (ignored by Render) ----------
+# -----------------------------
+# 🚀 Local Run (Ignored by Render)
+# -----------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
