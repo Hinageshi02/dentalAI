@@ -1,7 +1,17 @@
 services:
   - type: web
-    name: cavity-detector-ai
+    name: dentalai-yolo
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 1 --threads 1 --timeout 300
-    plan: free
+    plan: free                # You can change this to 'starter' or 'standard' if needed
+    region: singapore         # or 'oregon', 'frankfurt', etc.
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: >
+      gunicorn app:app --timeout 120 --workers 1 --threads 2 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
+      - key: PORT
+        value: 5000
+    autoDeploy: true
