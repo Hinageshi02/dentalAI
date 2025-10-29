@@ -8,7 +8,7 @@ import numpy as np
 import base64
 
 # ======================================================
-# ⚙️ Flask Configuration
+# ⚙️ Flask App Config
 # ======================================================
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
@@ -16,13 +16,12 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs("results", exist_ok=True)
 
 # ======================================================
-# 🧠 YOLO Model Loading (Safe for PyTorch 2.6+)
+# 🧠 Safe YOLO Model Loading (Torch 2.6+)
 # ======================================================
 MODEL_PATH = os.path.join("runs", "detect", "cavity_yolo25", "weights", "best.pt")
 model = None
 
 try:
-    # Allowlist the YOLO detection model for PyTorch safe loading
     from ultralytics.nn.tasks import DetectionModel
     torch.serialization.add_safe_globals([DetectionModel])
 
@@ -30,10 +29,10 @@ try:
         raise FileNotFoundError(f"❌ Model not found at {MODEL_PATH}")
 
     model = YOLO(MODEL_PATH)
-    print("✅ YOLOv8 model loaded successfully!")
+    print("✅ YOLO model loaded successfully!")
 
 except Exception as e:
-    print(f"⚠️ Warning: Failed to load YOLO model — {e}")
+    print(f"⚠️ Failed to load YOLO model: {e}")
     print("Running in mock mode (no real detection).")
 
 # ======================================================
@@ -44,7 +43,7 @@ def home():
     return render_template("index.html")
 
 # ======================================================
-# 🧠 Predict Route
+# 🧩 Predict Route
 # ======================================================
 @app.route("/predict", methods=["POST"])
 def predict():
@@ -61,9 +60,7 @@ def predict():
 
     try:
         if model is None:
-            # ------------------------------
-            # 🧩 Mock detection (fallback)
-            # ------------------------------
+            # ---- Mock fallback (for low-memory Render) ----
             img = cv2.imread(filepath)
             h, w, _ = img.shape
             cv2.rectangle(img, (20, 20), (w - 20, h - 20), (0, 0, 255), 2)
@@ -76,12 +73,10 @@ def predict():
                 "detections": []
             })
 
-        # ------------------------------
-        # 🚀 Real YOLO Prediction
-        # ------------------------------
+        # ---- Real YOLO prediction ----
         results = model.predict(
             source=filepath,
-            imgsz=320,       # smaller size = less memory
+            imgsz=320,
             device="cpu",
             conf=0.25,
             save=True,
@@ -93,7 +88,6 @@ def predict():
         result_path = results[0].save_dir / os.path.basename(filepath)
         annotated = cv2.imread(str(result_path))
 
-        # Convert annotated result to Base64
         _, buffer = cv2.imencode(".jpg", annotated)
         encoded_image = base64.b64encode(buffer).decode("utf-8")
 
@@ -104,7 +98,7 @@ def predict():
 
         return jsonify({
             "success": True,
-            "message": "Cavity detection completed successfully.",
+            "message": "Detection completed successfully.",
             "result_image": f"data:image/jpeg;base64,{encoded_image}",
             "detections": detections
         })
@@ -113,7 +107,7 @@ def predict():
         return jsonify({"success": False, "error": str(e)})
 
 # ======================================================
-# 🧩 App Entry Point (Render-compatible)
+# 🚀 Render Entry Point
 # ======================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
