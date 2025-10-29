@@ -6,51 +6,66 @@ import cv2
 import numpy as np
 import base64
 
-# Flask setup
+# ---------------------------
+# 🔧 Flask App Configuration
+# ---------------------------
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
 
-# Ensure upload directory exists
+# Ensure directories exist
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs("results", exist_ok=True)
 
-# Fix for Ultralytics config directory warning
+# Avoid permission issues in Render
 os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
 
-# ✅ Load the YOLO model immediately on startup (safer for Render)
-model_path = "runs/detect/cavity_yolo25/weights/best.pt"
-model = YOLO(model_path)
+# ---------------------------
+# 🚀 Load YOLO Model (once)
+# ---------------------------
+MODEL_PATH = "runs/detect/cavity_yolo25/weights/best.pt"
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"❌ Model not found at {MODEL_PATH}")
+
+model = YOLO(MODEL_PATH)
 print("✅ YOLOv8 cavity detection model loaded successfully!")
 
 
+# ---------------------------
+# 🏠 Home Page
+# ---------------------------
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
+# ---------------------------
+# 🧠 Prediction Endpoint
+# ---------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
     if "image" not in request.files:
-        return jsonify({"success": False, "error": "No file part"})
+        return jsonify({"success": False, "error": "No image uploaded"}), 400
 
     file = request.files["image"]
     if file.filename == "":
-        return jsonify({"success": False, "error": "No selected file"})
+        return jsonify({"success": False, "error": "No selected file"}), 400
 
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
-    # Run YOLOv8 inference
+    # Run YOLO prediction
     results = model.predict(source=filepath, save=True, project="results", name="predictions", exist_ok=True)
 
-    # Get annotated image
+    # Get the annotated image path
     result_path = results[0].save_dir / os.path.basename(filepath)
-    annotated_img = cv2.imread(str(result_path))
-    _, buffer = cv2.imencode(".jpg", annotated_img)
-    result_base64 = base64.b64encode(buffer).decode("utf-8")
+    annotated = cv2.imread(str(result_path))
 
-    # Confidence extraction (if available)
+    # Convert to base64 for frontend display
+    _, buffer = cv2.imencode(".jpg", annotated)
+    encoded_image = base64.b64encode(buffer).decode("utf-8")
+
+    # Extract detections
     detections = []
     for box in results[0].boxes:
         conf = float(box.conf[0])
@@ -58,13 +73,15 @@ def predict():
 
     return jsonify({
         "success": True,
-        "message": "Detection completed successfully.",
-        "result_image": f"data:image/jpeg;base64,{result_base64}",
+        "message": "Cavity detection completed successfully.",
+        "result_image": f"data:image/jpeg;base64,{encoded_image}",
         "detections": detections
     })
 
 
-# ✅ Ensure Flask binds to the correct Render port
+# ---------------------------
+# 🧩 Render Entry Point
+# ---------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
